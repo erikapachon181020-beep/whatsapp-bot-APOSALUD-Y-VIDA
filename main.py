@@ -2,6 +2,7 @@ from fastapi import FastAPI, Form
 from fastapi.responses import PlainTextResponse
 from twilio.rest import Client
 import uvicorn
+import os
 
 from config import config
 from database import get_history, save_messages, is_human_mode, set_human_mode
@@ -21,13 +22,13 @@ VENDEDOR = "whatsapp:+573226706141"
 
 def send_whatsapp(to: str, body: str, media_url: str = None):
     try:
-        message = twilio_client.messages.create(
+        twilio_client.messages.create(
             body=body,
             from_="whatsapp:" + config.TWILIO_NUMBER,
             to=to,
             media_url=[media_url] if media_url else None,
         )
-        print("[TWILIO OK]", message.sid)
+        print("[TWILIO OK]")
     except Exception as e:
         print("[ERROR TWILIO]", str(e))
 
@@ -61,7 +62,6 @@ async def webhook(From: str = Form(...), Body: str = Form(...)):
     # MODO HUMANO
     # =============================
     if is_human_mode(phone):
-        print("[MODO HUMANO ACTIVO]")
         return PlainTextResponse("", status_code=200)
 
     # =============================
@@ -70,10 +70,10 @@ async def webhook(From: str = Form(...), Body: str = Form(...)):
     if any(w in text.lower() for w in ["humano", "asesor", "agente"]):
         set_human_mode(phone, True)
 
-        reply = "Un asesor te contactará pronto 👨‍💼"
+        reply = "Un asesor se comunicará contigo pronto 👨‍💼"
         send_whatsapp(phone, reply)
 
-        alerta = f"🚨 Cliente necesita asesor: {phone}"
+        alerta = f"🚨 CLIENTE NECESITA ASESOR\nNumero: {phone.replace('whatsapp:', '')}\nMensaje: {text}"
         send_whatsapp(VENDEDOR, alerta)
 
         save_messages(phone, text, reply)
@@ -81,19 +81,28 @@ async def webhook(From: str = Form(...), Body: str = Form(...)):
 
     try:
         # =============================
-        # IA
+        # HISTORIAL
         # =============================
         history = get_history(phone)
         primer_mensaje = len(history) == 0
 
+        # =============================
+        # IA
+        # =============================
         reply = await get_ai_response(phone, text, history, primer_mensaje)
 
-        print("📤 RESPUESTA:", reply)
+        # =============================
+        # TRANSFERENCIA
+        # =============================
+        if "TRANSFERIR_HUMANO" in reply:
+            set_human_mode(phone, True)
+            reply = "Un asesor te contactará pronto 👨‍💼"
+            send_whatsapp(VENDEDOR, f"Cliente necesita asesor: {phone}")
 
         # =============================
         # PEDIDO
         # =============================
-        if "PEDIDO_CONFIRMAR" in reply:
+        elif "PEDIDO_CONFIRMAR" in reply:
             try:
                 linea = [l for l in reply.split("\n") if "PEDIDO_CONFIRMAR" in l][0]
                 partes = linea.split("|")
@@ -115,6 +124,7 @@ async def webhook(From: str = Form(...), Body: str = Form(...)):
                     referencia,
                     producto,
                     presentacion,
+                    "",  # marca opcional
                     sabor,
                     cantidad,
                     precio,
@@ -122,30 +132,36 @@ async def webhook(From: str = Form(...), Body: str = Form(...)):
                 )
 
                 if ok:
-                    reply = f"✅ Pedido confirmado\n{producto}\nCantidad: {cantidad}\nTotal: ${total:,}"
+                    reply = (
+                        f"✅ Pedido confirmado\n\n"
+                        f"{producto}\n"
+                        f"{presentacion} | {sabor}\n"
+                        f"Cantidad: {cantidad}\n"
+                        f"Total: ${total:,}\n\n"
+                        f"Te contactamos pronto."
+                    )
 
             except Exception as e:
                 print("[ERROR PEDIDO]", e)
                 reply = "⚠️ Error procesando pedido"
 
         # =============================
-        # TRANSFERENCIA
-        # =============================
-        if "TRANSFERIR_HUMANO" in reply:
-            set_human_mode(phone, True)
-            reply = "Un asesor te contactará pronto 👨‍💼"
-
-        # =============================
-        # IMAGEN
+        # IMÁGENES
         # =============================
         media_url = None
 
-        for producto in INFO_PRODUCTOS:
-            if producto in reply.lower():
-                info = get_info(producto)
-                if info:
-                    media_url = info.get("imagen")
-                    break
+        for servicio in SERVICIOS:
+            if servicio in reply.lower():
+                media_url = SERVICIOS[servicio]["imagen"]
+                break
+
+        if not media_url:
+            for producto in INFO_PRODUCTOS:
+                if producto in reply.lower():
+                    info = get_info(producto)
+                    if info:
+                        media_url = info.get("imagen")
+                        break
 
         # =============================
         # RESPUESTA FINAL
@@ -161,6 +177,4 @@ async def webhook(From: str = Form(...), Body: str = Form(...)):
 
 
 if __name__ == "__main__":
-    import os
-
-uvicorn.run("main:app", host="0.0.0.0", port=int(os.environ.get("PORT", 8000)))
+    uvicorn.run("main:app", host="0.0.0.0", port=int(os.environ.get("PORT", 8000)))
