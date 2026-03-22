@@ -21,7 +21,7 @@ VENDEDOR = "whatsapp:+573226706141"
 
 def send_whatsapp(to: str, body: str, media_url: str = None):
     try:
-        print("[ENVIANDO WHATSAPP]", to, body)
+        print("[ENVIANDO]", to, body)
 
         twilio_client.messages.create(
             body=body,
@@ -29,7 +29,6 @@ def send_whatsapp(to: str, body: str, media_url: str = None):
             to=to,
             media_url=[media_url] if media_url else None,
         )
-
     except Exception as e:
         print("[ERROR TWILIO]", str(e))
 
@@ -46,12 +45,18 @@ async def webhook(From: str = Form(...), Body: str = Form(...)):
 
     print(f"[MSG] {phone}: {text}")
 
+    # =============================
+    # MODO HUMANO
+    # =============================
     if is_human_mode(phone):
         return PlainTextResponse("", status_code=200)
 
     try:
         history = get_history(phone)
         primer_mensaje = len(history) == 0
+
+        # RESPUESTA INMEDIATA (evita timeout de Twilio)
+        send_whatsapp(phone, "⏳ Procesando tu solicitud...")
 
         reply = await get_ai_response(phone, text, history, primer_mensaje)
 
@@ -99,8 +104,10 @@ async def webhook(From: str = Form(...), Body: str = Form(...)):
                 print("[ERROR PEDIDO]", e)
                 reply = "⚠️ Error procesando pedido"
 
+        # =============================
+        # GUARDAR Y RESPONDER
+        # =============================
         save_messages(phone, text, reply)
-
         send_whatsapp(phone, reply)
 
     except Exception as e:
@@ -111,4 +118,4 @@ async def webhook(From: str = Form(...), Body: str = Form(...)):
 
 
 if __name__ == "__main__":
-    uvicorn.run("main:app", host="0.0.0.0", port=config.PORT)
+    uvicorn.run("main:app", host="0.0.0.0", port=int(config.PORT))
