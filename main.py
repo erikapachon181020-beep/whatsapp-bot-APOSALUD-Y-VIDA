@@ -21,12 +21,13 @@ VENDEDOR = "whatsapp:+573226706141"
 
 def send_whatsapp(to: str, body: str, media_url: str = None):
     try:
-        twilio_client.messages.create(
+        message = twilio_client.messages.create(
             body=body,
             from_="whatsapp:" + config.TWILIO_NUMBER,
             to=to,
             media_url=[media_url] if media_url else None,
         )
+        print("[TWILIO OK]", message.sid)
     except Exception as e:
         print("[ERROR TWILIO]", str(e))
 
@@ -39,15 +40,9 @@ def health_check():
 @app.post("/webhook")
 async def webhook(From: str = Form(...), Body: str = Form(...)):
     phone = From
-    text = Body.strip().lower()
+    text = Body.strip()
 
     print(f"[MSG] {phone}: {text}")
-
-    # =============================
-    # EVITAR SPAM CORTO
-    # =============================
-    if text in ["oye", "ok", "hola", "hey"] and len(text) < 5:
-        return PlainTextResponse("", status_code=200)
 
     # =============================
     # COMANDOS
@@ -66,39 +61,39 @@ async def webhook(From: str = Form(...), Body: str = Form(...)):
     # MODO HUMANO
     # =============================
     if is_human_mode(phone):
+        print("[MODO HUMANO ACTIVO]")
         return PlainTextResponse("", status_code=200)
 
     # =============================
     # TRIGGER HUMANO
     # =============================
-    if any(w in text for w in ["humano", "asesor", "agente"]):
+    if any(w in text.lower() for w in ["humano", "asesor", "agente"]):
         set_human_mode(phone, True)
 
         reply = "Un asesor te contactará pronto 👨‍💼"
         send_whatsapp(phone, reply)
 
-        send_whatsapp(VENDEDOR, f"Cliente necesita asesor: {phone}")
+        alerta = f"🚨 Cliente necesita asesor: {phone}"
+        send_whatsapp(VENDEDOR, alerta)
 
         save_messages(phone, text, reply)
         return PlainTextResponse("", status_code=200)
 
     try:
+        # =============================
+        # IA
+        # =============================
         history = get_history(phone)
         primer_mensaje = len(history) == 0
 
         reply = await get_ai_response(phone, text, history, primer_mensaje)
 
-        # =============================
-        # TRANSFERENCIA
-        # =============================
-        if "TRANSFERIR_HUMANO" in reply:
-            set_human_mode(phone, True)
-            reply = "Un asesor te contactará pronto 👨‍💼"
+        print("📤 RESPUESTA:", reply)
 
         # =============================
         # PEDIDO
         # =============================
-        elif "PEDIDO_CONFIRMAR" in reply:
+        if "PEDIDO_CONFIRMAR" in reply:
             try:
                 linea = [l for l in reply.split("\n") if "PEDIDO_CONFIRMAR" in l][0]
                 partes = linea.split("|")
@@ -134,6 +129,13 @@ async def webhook(From: str = Form(...), Body: str = Form(...)):
                 reply = "⚠️ Error procesando pedido"
 
         # =============================
+        # TRANSFERENCIA
+        # =============================
+        if "TRANSFERIR_HUMANO" in reply:
+            set_human_mode(phone, True)
+            reply = "Un asesor te contactará pronto 👨‍💼"
+
+        # =============================
         # IMAGEN
         # =============================
         media_url = None
@@ -145,6 +147,9 @@ async def webhook(From: str = Form(...), Body: str = Form(...)):
                     media_url = info.get("imagen")
                     break
 
+        # =============================
+        # RESPUESTA FINAL
+        # =============================
         save_messages(phone, text, reply)
         send_whatsapp(phone, reply, media_url)
 
