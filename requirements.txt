@@ -7,5 +7,3 @@ supabase
 python-dotenv
 httpx
 pandas
-gspread
-google-auth
