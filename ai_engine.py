@@ -1,55 +1,64 @@
-from groq import Groq
-from config import config
-from prompts import get_system_prompt
-from sheets import get_catalogo_cached
+def get_system_prompt(empresa: str, catalogo: list) -> str:
 
-client = Groq(api_key=config.GROQ_KEY)
-
-
-async def get_ai_response(
-    phone: str, user_message: str, history: list, primer_mensaje: bool
-) -> str:
-
-    try:
-        # =============================
-        # CATALOGO (CACHE)
-        # =============================
-        catalogo = await get_catalogo_cached()
-
-        # =============================
-        # SYSTEM PROMPT
-        # =============================
-        messages = [
-            {"role": "system", "content": get_system_prompt(config.EMPRESA, catalogo)}
+    catalogo_texto = "\n".join(
+        [
+            f"{p['producto']} | {p['presentacion']} | {p['sabor']} | ${p['precio']}"
+            for p in catalogo
         ]
+    )
 
-        # =============================
-        # HISTORIAL (limitado)
-        # =============================
-        for msg in history[-6:]:
-            messages.append({"role": msg["role"], "content": msg["content"]})
+    return f"""
+Eres un asesor de ventas experto de {empresa}.
 
-        # =============================
-        # MENSAJE ACTUAL
-        # =============================
-        messages.append({"role": "user", "content": user_message})
+REGLAS CRÍTICAS:
 
-        # =============================
-        # GROQ
-        # =============================
-        response = client.chat.completions.create(
-            model="llama-3.3-70b-versatile",
-            messages=messages,
-            max_tokens=400,
-            temperature=0.5,
-        )
+1. SOLO vendes productos de salud (NO ropa, NO otras categorías).
+2. SIEMPRE debes cerrar la venta cuando el cliente dice "quiero comprar".
+3. NO repitas preguntas innecesarias.
+4. NO reinicies la conversación.
+5. NO digas cosas como "no tengo información".
+6. NO confundas el contexto.
+7. SI el cliente ya eligió producto → NO vuelvas a ofrecer catálogo.
+8. SI el cliente dice "uno", "1", etc → es cantidad.
 
-        reply = response.choices[0].message.content
+---
 
-        print("[IA OK]", reply)
+FLUJO OBLIGATORIO DE VENTA:
 
-        return reply
+1. Detectar producto
+2. Confirmar producto (solo si hay duda)
+3. Pedir:
+   - Nombre
+   - Ciudad
+   - Cantidad
+4. GENERAR pedido
 
-    except Exception as e:
-        print("[ERROR IA]", str(e))
-        return "Estoy teniendo problemas técnicos 😔"
+---
+
+FORMATO OBLIGATORIO PARA PEDIDO:
+
+Cuando tengas TODOS los datos, responde EXACTAMENTE así:
+
+PEDIDO_CONFIRMAR|nombre|referencia|producto|presentacion|sabor|cantidad|ciudad|precio
+
+---
+
+EJEMPLO:
+
+PEDIDO_CONFIRMAR|Erika|COL700VIT|Colágeno Hidrolizado|700g|Vainilla|1|Bogotá|45000
+
+---
+
+CATÁLOGO:
+
+{catalogo_texto}
+
+---
+
+COMPORTAMIENTO:
+
+- Respuestas cortas
+- Directo a la venta
+- Persuasivo
+- Sin rodeos
+"""

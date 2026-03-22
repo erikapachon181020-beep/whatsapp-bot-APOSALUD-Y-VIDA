@@ -2,7 +2,6 @@ from fastapi import FastAPI, Form
 from fastapi.responses import PlainTextResponse
 from twilio.rest import Client
 import uvicorn
-import os
 
 from config import config
 from database import get_history, save_messages, is_human_mode, set_human_mode
@@ -22,13 +21,15 @@ VENDEDOR = "whatsapp:+573226706141"
 
 def send_whatsapp(to: str, body: str, media_url: str = None):
     try:
+        print("[ENVIANDO WHATSAPP]", to, body)
+
         twilio_client.messages.create(
             body=body,
             from_="whatsapp:" + config.TWILIO_NUMBER,
             to=to,
             media_url=[media_url] if media_url else None,
         )
-        print("[TWILIO OK]")
+
     except Exception as e:
         print("[ERROR TWILIO]", str(e))
 
@@ -45,64 +46,19 @@ async def webhook(From: str = Form(...), Body: str = Form(...)):
 
     print(f"[MSG] {phone}: {text}")
 
-    # =============================
-    # COMANDOS
-    # =============================
-    if text.startswith("/bot-on"):
-        set_human_mode(phone, False)
-        send_whatsapp(phone, "✅ Bot activado")
-        return PlainTextResponse("", status_code=200)
-
-    if text.startswith("/bot-off"):
-        set_human_mode(phone, True)
-        send_whatsapp(phone, "⛔ Bot desactivado")
-        return PlainTextResponse("", status_code=200)
-
-    # =============================
-    # MODO HUMANO
-    # =============================
     if is_human_mode(phone):
         return PlainTextResponse("", status_code=200)
 
-    # =============================
-    # TRIGGER HUMANO
-    # =============================
-    if any(w in text.lower() for w in ["humano", "asesor", "agente"]):
-        set_human_mode(phone, True)
-
-        reply = "Un asesor se comunicará contigo pronto 👨‍💼"
-        send_whatsapp(phone, reply)
-
-        alerta = f"🚨 CLIENTE NECESITA ASESOR\nNumero: {phone.replace('whatsapp:', '')}\nMensaje: {text}"
-        send_whatsapp(VENDEDOR, alerta)
-
-        save_messages(phone, text, reply)
-        return PlainTextResponse("", status_code=200)
-
     try:
-        # =============================
-        # HISTORIAL
-        # =============================
         history = get_history(phone)
         primer_mensaje = len(history) == 0
 
-        # =============================
-        # IA
-        # =============================
         reply = await get_ai_response(phone, text, history, primer_mensaje)
-
-        # =============================
-        # TRANSFERENCIA
-        # =============================
-        if "TRANSFERIR_HUMANO" in reply:
-            set_human_mode(phone, True)
-            reply = "Un asesor te contactará pronto 👨‍💼"
-            send_whatsapp(VENDEDOR, f"Cliente necesita asesor: {phone}")
 
         # =============================
         # PEDIDO
         # =============================
-        elif "PEDIDO_CONFIRMAR" in reply:
+        if "PEDIDO_CONFIRMAR" in reply:
             try:
                 linea = [l for l in reply.split("\n") if "PEDIDO_CONFIRMAR" in l][0]
                 partes = linea.split("|")
@@ -118,63 +74,41 @@ async def webhook(From: str = Form(...), Body: str = Form(...)):
 
                 total = cantidad * precio
 
-                ok = await registrar_pedido(
+                await registrar_pedido(
                     phone,
                     nombre,
                     referencia,
                     producto,
                     presentacion,
-                    "",  # marca opcional
                     sabor,
                     cantidad,
                     precio,
                     ubicacion,
                 )
 
-                if ok:
-                    reply = (
-                        f"✅ Pedido confirmado\n\n"
-                        f"{producto}\n"
-                        f"{presentacion} | {sabor}\n"
-                        f"Cantidad: {cantidad}\n"
-                        f"Total: ${total:,}\n\n"
-                        f"Te contactamos pronto."
-                    )
+                reply = (
+                    f"✅ Pedido confirmado\n\n"
+                    f"{producto}\n"
+                    f"{presentacion} | {sabor}\n"
+                    f"Cantidad: {cantidad}\n"
+                    f"Total: ${total:,}\n\n"
+                    f"Te contactamos pronto."
+                )
 
             except Exception as e:
                 print("[ERROR PEDIDO]", e)
                 reply = "⚠️ Error procesando pedido"
 
-        # =============================
-        # IMÁGENES
-        # =============================
-        media_url = None
-
-        for servicio in SERVICIOS:
-            if servicio in reply.lower():
-                media_url = SERVICIOS[servicio]["imagen"]
-                break
-
-        if not media_url:
-            for producto in INFO_PRODUCTOS:
-                if producto in reply.lower():
-                    info = get_info(producto)
-                    if info:
-                        media_url = info.get("imagen")
-                        break
-
-        # =============================
-        # RESPUESTA FINAL
-        # =============================
         save_messages(phone, text, reply)
-        send_whatsapp(phone, reply, media_url)
+
+        send_whatsapp(phone, reply)
 
     except Exception as e:
-        print("[ERROR]", str(e))
+        print("[ERROR GENERAL]", str(e))
         send_whatsapp(phone, "Error técnico. Intenta luego.")
 
     return PlainTextResponse("", status_code=200)
 
 
 if __name__ == "__main__":
-    uvicorn.run("main:app", host="0.0.0.0", port=int(os.environ.get("PORT", 8000)))
+    uvicorn.run("main:app", host="0.0.0.0", port=config.PORT)
