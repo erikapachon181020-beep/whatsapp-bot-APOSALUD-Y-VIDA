@@ -27,7 +27,6 @@ def send_whatsapp(to: str, body: str, media_url: str = None):
             to=to,
             media_url=[media_url] if media_url else None,
         )
-        print(f"[OK] Enviado a {to}")
     except Exception as e:
         print("[ERROR TWILIO]", str(e))
 
@@ -40,9 +39,15 @@ def health_check():
 @app.post("/webhook")
 async def webhook(From: str = Form(...), Body: str = Form(...)):
     phone = From
-    text = Body.strip()
+    text = Body.strip().lower()
 
     print(f"[MSG] {phone}: {text}")
+
+    # =============================
+    # EVITAR SPAM CORTO
+    # =============================
+    if text in ["oye", "ok", "hola", "hey"] and len(text) < 5:
+        return PlainTextResponse("", status_code=200)
 
     # =============================
     # COMANDOS
@@ -66,28 +71,21 @@ async def webhook(From: str = Form(...), Body: str = Form(...)):
     # =============================
     # TRIGGER HUMANO
     # =============================
-    if any(w in text.lower() for w in ["humano", "asesor", "agente"]):
+    if any(w in text for w in ["humano", "asesor", "agente"]):
         set_human_mode(phone, True)
 
-        reply = "Un asesor se comunicará contigo pronto 👨‍💼"
+        reply = "Un asesor te contactará pronto 👨‍💼"
         send_whatsapp(phone, reply)
 
-        alerta = f"🚨 CLIENTE NECESITA ASESOR\nNumero: {phone.replace('whatsapp:', '')}\nMensaje: {text}"
-        send_whatsapp(VENDEDOR, alerta)
+        send_whatsapp(VENDEDOR, f"Cliente necesita asesor: {phone}")
 
         save_messages(phone, text, reply)
         return PlainTextResponse("", status_code=200)
 
     try:
-        # =============================
-        # HISTORIAL
-        # =============================
         history = get_history(phone)
         primer_mensaje = len(history) == 0
 
-        # =============================
-        # IA (CORREGIDO)
-        # =============================
         reply = await get_ai_response(phone, text, history, primer_mensaje)
 
         # =============================
@@ -96,7 +94,6 @@ async def webhook(From: str = Form(...), Body: str = Form(...)):
         if "TRANSFERIR_HUMANO" in reply:
             set_human_mode(phone, True)
             reply = "Un asesor te contactará pronto 👨‍💼"
-            send_whatsapp(VENDEDOR, f"Cliente necesita asesor: {phone}")
 
         # =============================
         # PEDIDO
@@ -130,40 +127,24 @@ async def webhook(From: str = Form(...), Body: str = Form(...)):
                 )
 
                 if ok:
-                    reply = (
-                        f"✅ Pedido confirmado\n\n"
-                        f"{producto}\n"
-                        f"{presentacion} | {sabor}\n"
-                        f"Cantidad: {cantidad}\n"
-                        f"Total: ${total:,}\n\n"
-                        f"Te contactamos pronto."
-                    )
+                    reply = f"✅ Pedido confirmado\n{producto}\nCantidad: {cantidad}\nTotal: ${total:,}"
 
             except Exception as e:
                 print("[ERROR PEDIDO]", e)
                 reply = "⚠️ Error procesando pedido"
 
         # =============================
-        # IMÁGENES
+        # IMAGEN
         # =============================
         media_url = None
 
-        for servicio in SERVICIOS:
-            if servicio in reply.lower():
-                media_url = SERVICIOS[servicio]["imagen"]
-                break
+        for producto in INFO_PRODUCTOS:
+            if producto in reply.lower():
+                info = get_info(producto)
+                if info:
+                    media_url = info.get("imagen")
+                    break
 
-        if not media_url:
-            for producto in INFO_PRODUCTOS:
-                if producto in reply.lower():
-                    info = get_info(producto)
-                    if info:
-                        media_url = info.get("imagen")
-                        break
-
-        # =============================
-        # RESPUESTA FINAL
-        # =============================
         save_messages(phone, text, reply)
         send_whatsapp(phone, reply, media_url)
 

@@ -1,7 +1,7 @@
 from groq import Groq
 from config import config
 from prompts import get_system_prompt
-from sheets import get_catalogo_cached  # 🔥 usamos cache para evitar latencia
+from sheets import get_catalogo_cached
 
 client = Groq(api_key=config.GROQ_KEY)
 
@@ -11,9 +11,12 @@ async def get_ai_response(
 ) -> str:
     try:
         # =============================
-        # 📦 CATALOGO
+        # 📦 CATALOGO (CACHE)
         # =============================
-        catalogo = await get_catalogo_cached()
+        try:
+            catalogo = await get_catalogo_cached()
+        except:
+            catalogo = "Catálogo no disponible"
 
         # =============================
         # 🧠 SYSTEM PROMPT
@@ -23,13 +26,13 @@ async def get_ai_response(
         ]
 
         # =============================
-        # 🧾 HISTORIAL
+        # 🧾 HISTORIAL (LIMITADO)
         # =============================
-        for msg in history:
+        for msg in history[-6:]:
             messages.append({"role": msg["role"], "content": msg["content"]})
 
         # =============================
-        # 👋 CONTROL DE SALUDO (ANTI-SPAM)
+        # 👋 CONTROL SALUDO
         # =============================
         texto = user_message.lower().strip()
 
@@ -38,16 +41,26 @@ async def get_ai_response(
             for s in ["hola", "buenas", "buenos dias", "buenas tardes", "buenas noches"]
         )
 
-        # 🔥 SOLO saluda si es el PRIMER mensaje
         if primer_mensaje and es_saludo:
             messages.append(
                 {
                     "role": "user",
-                    "content": "El usuario acaba de iniciar conversación diciendo hola. Responde con saludo de bienvenida y ofrece productos.",
+                    "content": "El usuario inicia conversación. Saluda y ofrece productos.",
                 }
             )
         else:
             messages.append({"role": "user", "content": user_message})
+
+        # =============================
+        # 🛒 DETECCIÓN DE COMPRA
+        # =============================
+        if any(x in texto for x in ["comprar", "lo quiero", "quiero", "me interesa"]):
+            messages.append(
+                {
+                    "role": "system",
+                    "content": "El usuario quiere comprar. NO ofrezcas más productos. Solicita datos para cerrar venta.",
+                }
+            )
 
         # =============================
         # 🤖 GROQ
@@ -55,15 +68,12 @@ async def get_ai_response(
         response = client.chat.completions.create(
             model="llama-3.3-70b-versatile",
             messages=messages,
-            max_tokens=500,
-            temperature=0.6,
+            max_tokens=300,
+            temperature=0.5,
         )
 
         reply = response.choices[0].message.content.strip()
 
-        # =============================
-        # 🧼 LIMPIEZA BÁSICA
-        # =============================
         if not reply:
             return "Hola 👋 ¿En qué producto estás interesado?"
 
