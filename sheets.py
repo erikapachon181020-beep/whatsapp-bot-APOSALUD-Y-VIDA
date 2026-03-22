@@ -18,75 +18,40 @@ _catalogo_cache = None
 # 📦 CATALOGO
 # =============================
 async def get_catalogo() -> str:
-    try:
-        url = BASE_URL + "&sheet=Catalogo"
+    url = BASE_URL + "&sheet=Catalogo"
+    async with httpx.AsyncClient() as client:
+        response = await client.get(url, timeout=10)
 
-        async with httpx.AsyncClient() as client:
-            response = await client.get(url, timeout=10.0)
+    reader = csv.reader(io.StringIO(response.text))
+    rows = list(reader)
 
-        reader = csv.reader(io.StringIO(response.text))
-        rows = list(reader)
+    productos = []
 
-        productos = []
+    for row in rows:
+        if len(row) < 11:
+            continue
+        if not row[0].startswith("R"):
+            continue
+        if row[10].strip().lower() != "activo":
+            continue
 
-        for row in rows:
-            if len(row) < 11:
-                continue
+        precio = row[6].replace("$", "").replace(".", "").strip()
+        productos.append(
+            f"- {row[2]} | Pres: {row[3]} | Marca: {row[4]} | "
+            f"Sabor: {row[5]} | Precio: ${precio} | Ref: {row[8]}"
+        )
 
-            if not row[0].startswith("R"):
-                continue
+    if not productos:
+        return "⚠️ No hay productos activos."
 
-            estado = row[10].strip().lower()
-
-            if estado not in ["activo", "disponible"]:
-                continue
-
-            if not row[2]:
-                continue
-
-            precio_raw = (
-                row[6]
-                .replace("$", "")
-                .replace(".", "")
-                .replace(",", "")
-                .strip()
-            )
-
-            try:
-                precio = int(precio_raw)
-                precio_fmt = "${:,}".format(precio).replace(",", ".")
-            except:
-                precio_fmt = row[6]
-
-            producto = (
-                "- " + row[2]
-                + " | Presentación: " + row[3]
-                + " | Marca: " + row[4]
-                + " | Sabor: " + row[5]
-                + " | Precio: " + precio_fmt
-                + " | Stock: " + row[7] + " uds"
-                + " | Ref: " + row[8]
-            )
-
-            productos.append(producto)
-
-        if not productos:
-            return "⚠️ No hay productos activos."
-
-        print(f"[CATALOGO OK] {len(productos)} productos")
-        return "\n".join(productos)
-
-    except Exception as e:
-        print("[ERROR CATALOGO]", str(e))
-        return "⚠️ Error catálogo"
+    print(f"[CATALOGO OK] {len(productos)} productos")
+    return "\n".join(productos)
 
 
-async def get_catalogo_cached() -> str:
+async def get_catalogo_cached():
     global _catalogo_cache
-
     if _catalogo_cache:
         return _catalogo_cache
-
     _catalogo_cache = await get_catalogo()
     return _catalogo_cache
 
@@ -106,105 +71,62 @@ async def registrar_pedido(
     precio,
     ubicacion,
 ):
-    try:
-        dias = get_duracion(producto)
+    dias = get_duracion(producto)
+    now = datetime.now()
 
-        now = datetime.now()
+    data = {
+        "telefono": telefono,
+        "nombre": nombre,
+        "referencia": referencia,
+        "producto": producto,
+        "presentacion": presentacion,
+        "marca": marca,
+        "sabor": sabor,
+        "cantidad": cantidad,
+        "precio": precio,
+        "ubicacion": ubicacion,
+        "fecha": now.strftime("%Y-%m-%d"),
+        "hora": now.strftime("%H:%M:%S"),
+        "dias_duracion": dias,
+    }
 
-        data = {
-            "telefono": telefono,
-            "nombre": nombre,
-            "referencia": referencia,
-            "producto": producto,
-            "presentacion": presentacion,
-            "marca": marca,
-            "sabor": sabor,
-            "cantidad": cantidad,
-            "precio": precio,
-            "ubicacion": ubicacion,
-            "fecha": now.strftime("%Y-%m-%d"),
-            "hora": now.strftime("%H:%M:%S"),
-            "dias_duracion": dias,
-        }
+    async with httpx.AsyncClient() as client:
+        await client.post(APPS_SCRIPT_URL, json=data)
 
-        async with httpx.AsyncClient() as client:
-            await client.post(
-                APPS_SCRIPT_URL,
-                content=json.dumps(data),
-                headers={"Content-Type": "application/json"},
-            )
-
-        print("[PEDIDO OK]")
-        return True
-
-    except Exception as e:
-        print("[ERROR PEDIDO]", str(e))
-        return False
+    print("[PEDIDO OK]")
+    return True
 
 
 # =============================
-# 🔁 LEER PEDIDOS (FOLLOW-UP PRO)
+# 🔁 FOLLOW-UP
 # =============================
 async def get_pedidos():
-    try:
-        url = BASE_URL + "&sheet=Pedidos"
+    url = BASE_URL + "&sheet=Pedidos"
+    async with httpx.AsyncClient() as client:
+        response = await client.get(url, timeout=10)
 
-        async with httpx.AsyncClient() as client:
-            response = await client.get(url, timeout=10.0)
+    reader = csv.reader(io.StringIO(response.text))
+    rows = list(reader)
 
-        reader = csv.reader(io.StringIO(response.text))
-        rows = list(reader)
+    pedidos = []
 
-        pedidos = []
+    for row in rows:
+        if len(row) < 18 or row[0] == "# Pedido":
+            continue
 
-        for row in rows:
+        producto = row[7].strip()  # ✅ COLUMNA REAL
+        pedidos.append(
+            {
+                "telefono": row[3].strip(),
+                "nombre": row[4].strip(),
+                "producto": producto,
+                "fecha": f"{row[1]}T{row[2]}",
+                "dias_duracion": get_duracion(producto),
+                "f3": row[15],
+                "f_final": row[16],
+                "f_extra": row[17],
+            }
+        )
 
-            # Validación mínima
-            if len(row) < 7:
-                continue
-
-            # Saltar encabezado
-            if row[0].strip() == "# Pedido":
-                continue
-
-            try:
-                fecha_str = row[1].strip()
-                hora_str = row[2].strip()
-
-                if not fecha_str or not hora_str:
-                    continue
-
-                # 🔥 Convertir a ISO
-                fecha_iso = f"{fecha_str}T{hora_str}"
-
-                producto = row[6].strip()
-                telefono = row[3].strip()
-                nombre = row[4].strip()
-
-                dias = get_duracion(producto)
-
-                pedido = {
-                    "telefono": telefono,
-                    "nombre": nombre,
-                    "producto": producto,
-                    "fecha": fecha_iso,
-                    "dias_duracion": dias,
-
-                    # 🔥 FOLLOWUPS (SEGÚN TU SHEET REAL)
-                    "f3": row[15].strip() if len(row) > 15 else "",
-                    "f_final": row[16].strip() if len(row) > 16 else "",
-                    "f_extra": row[17].strip() if len(row) > 17 else "",
-                }
-
-                pedidos.append(pedido)
-
-            except Exception as e:
-                print("[ERROR FILA]", row, e)
-                continue
-
-        print(f"[PEDIDOS OK] {len(pedidos)} pedidos")
-        return pedidos
-
-    except Exception as e:
-        print("[ERROR GET PEDIDOS]", str(e))
-        return []
+    print(f"[PEDIDOS OK] {len(pedidos)}")
+    return pedidos

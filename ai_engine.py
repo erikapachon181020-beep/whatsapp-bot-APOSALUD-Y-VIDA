@@ -6,8 +6,7 @@ from sheets import get_catalogo_cached
 client = Groq(api_key=config.GROQ_KEY)
 
 
-async def get_ai_response(phone: str, user_message: str, history: list) -> str:
-
+async def get_ai_response(phone, user_message, history):
     catalogo = await get_catalogo_cached()
 
     messages = [
@@ -15,15 +14,15 @@ async def get_ai_response(phone: str, user_message: str, history: list) -> str:
     ]
 
     for msg in history:
-        messages.append({"role": msg["role"], "content": msg["content"]})
+        messages.append(msg)
 
     messages.append({"role": "user", "content": user_message})
 
     response = client.chat.completions.create(
         model="llama-3.3-70b-versatile",
         messages=messages,
-        max_tokens=700,
         temperature=0.7,
+        max_tokens=700,
     )
 
     return response.choices[0].message.content

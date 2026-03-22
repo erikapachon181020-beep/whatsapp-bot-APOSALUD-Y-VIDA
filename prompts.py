@@ -56,13 +56,13 @@ Cuando tengas TODOS los datos, responde en DOS PARTES:
 1️⃣ Resumen bonito para el cliente (OBLIGATORIO):
 
 "🧾 *Resumen de tu pedido*  
-Producto: {producto}  
-Presentación: {presentacion}  
-Marca: {marca}  
-Sabor: {sabor}  
-Cantidad: {cantidad}  
-Ubicación: {ubicacion}  
-Total: ${precio_total}
+Producto: {{producto}}  
+Presentación: {{presentacion}}  
+Marca: {{marca}}  
+Sabor: {{sabor}}  
+Cantidad: {{cantidad}}  
+Ubicación: {{ubicacion}}  
+Total: ${{precio_total}}
 
 ¿Confirmas tu pedido? 😊"
 
