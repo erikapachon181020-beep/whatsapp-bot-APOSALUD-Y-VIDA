@@ -27,6 +27,7 @@ def send_whatsapp(to: str, body: str, media_url: str = None):
             to=to,
             media_url=[media_url] if media_url else None,
         )
+        print(f"[OK] Enviado a {to}")
     except Exception as e:
         print("[ERROR TWILIO]", str(e))
 
@@ -85,7 +86,7 @@ async def webhook(From: str = Form(...), Body: str = Form(...)):
         primer_mensaje = len(history) == 0
 
         # =============================
-        # IA (FIX CLAVE)
+        # IA (CORREGIDO)
         # =============================
         reply = await get_ai_response(phone, text, history, primer_mensaje)
 
@@ -98,48 +99,45 @@ async def webhook(From: str = Form(...), Body: str = Form(...)):
             send_whatsapp(VENDEDOR, f"Cliente necesita asesor: {phone}")
 
         # =============================
-        # PEDIDO (SEGURO)
+        # PEDIDO
         # =============================
         elif "PEDIDO_CONFIRMAR" in reply:
             try:
-                linea = next(l for l in reply.split("\n") if "PEDIDO_CONFIRMAR" in l)
+                linea = [l for l in reply.split("\n") if "PEDIDO_CONFIRMAR" in l][0]
                 partes = linea.split("|")
 
-                if len(partes) >= 9:
-                    nombre = partes[1].strip()
-                    referencia = partes[2].strip()
-                    producto = partes[3].strip()
-                    presentacion = partes[4].strip()
-                    sabor = partes[5].strip()
-                    cantidad = int(partes[6].strip())
-                    ubicacion = partes[7].strip()
-                    precio = int(partes[8].strip())
+                nombre = partes[1]
+                referencia = partes[2]
+                producto = partes[3]
+                presentacion = partes[4]
+                sabor = partes[5]
+                cantidad = int(partes[6])
+                ubicacion = partes[7]
+                precio = int(partes[8])
 
-                    total = cantidad * precio
+                total = cantidad * precio
 
-                    ok = await registrar_pedido(
-                        phone,
-                        nombre,
-                        referencia,
-                        producto,
-                        presentacion,
-                        sabor,
-                        cantidad,
-                        precio,
-                        ubicacion,
+                ok = await registrar_pedido(
+                    phone,
+                    nombre,
+                    referencia,
+                    producto,
+                    presentacion,
+                    sabor,
+                    cantidad,
+                    precio,
+                    ubicacion,
+                )
+
+                if ok:
+                    reply = (
+                        f"✅ Pedido confirmado\n\n"
+                        f"{producto}\n"
+                        f"{presentacion} | {sabor}\n"
+                        f"Cantidad: {cantidad}\n"
+                        f"Total: ${total:,}\n\n"
+                        f"Te contactamos pronto."
                     )
-
-                    if ok:
-                        reply = (
-                            f"✅ Pedido confirmado\n\n"
-                            f"{producto}\n"
-                            f"{presentacion} | {sabor}\n"
-                            f"Cantidad: {cantidad}\n"
-                            f"Total: ${total:,}\n\n"
-                            f"Te contactamos pronto."
-                        )
-                else:
-                    reply = "⚠️ Faltan datos para confirmar el pedido"
 
             except Exception as e:
                 print("[ERROR PEDIDO]", e)
@@ -170,7 +168,7 @@ async def webhook(From: str = Form(...), Body: str = Form(...)):
         send_whatsapp(phone, reply, media_url)
 
     except Exception as e:
-        print("[ERROR GENERAL]", str(e))
+        print("[ERROR]", str(e))
         send_whatsapp(phone, "Error técnico. Intenta luego.")
 
     return PlainTextResponse("", status_code=200)
