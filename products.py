@@ -1,37 +1,68 @@
-# products.py
+# products.py — Duracion e info de productos APOSALUD Y VIDA
 
 DURACION_PRODUCTOS = {
-    "colageno hidrolizado": 30,
-    "colageno marino": 30,
-    "curcuma": 25,
-    "ajo": 20,
+    "ajo":                      20,
+    "citrato":                  30,
+    "colageno hidrolizado":     30,
+    "colageno marino":          30,
+    "complejo b":               30,
+    "curcuma":                  30,
+    "gomas de colageno":        30,
+    "gomas de resveratrol":     30,
+    "gomas de vinagre":         30,
+    "grainlax":                 25,
+    "hit 10":                   30,
+    "kolag":                    30,
+    "koncal":                   30,
+    "nad+resveratrol":          30,
+    "omega 3":                  30,
+    "omega 3,6,9":              30,
+    "oregano":                  30,
 }
 
 INFO_PRODUCTOS = {
     "colageno hidrolizado": {
-        "imagen": "https://tusitio.com/img/colageno.jpg",
-        "uso": "Tomar después del desayuno",
-        "beneficios": "Mejora piel, cabello y uñas",
-        "ingredientes": "Colágeno hidrolizado, vitamina C"
+        "uso": "Tomar en ayunas o antes de dormir",
+        "beneficios": "Mejora piel, cabello, unas y articulaciones"
+    },
+    "colageno marino": {
+        "uso": "Tomar en ayunas o antes de dormir",
+        "beneficios": "Mejora piel, cabello, unas y articulaciones"
     },
     "curcuma": {
-        "imagen": "https://tusitio.com/img/curcuma.jpg",
-        "uso": "Tomar después de comidas",
-        "beneficios": "Antiinflamatorio natural",
-        "ingredientes": "Cúrcuma natural"
+        "uso": "Tomar despues de comidas",
+        "beneficios": "Antiinflamatorio natural, apoya digestion"
     },
     "ajo": {
-        "imagen": "https://tusitio.com/img/ajo.jpg",
         "uso": "Tomar en ayunas",
-        "beneficios": "Mejora circulación",
-        "ingredientes": "Extracto de ajo"
-    }
+        "beneficios": "Mejora circulacion y sistema inmune"
+    },
+    "omega 3": {
+        "uso": "Tomar con una comida",
+        "beneficios": "Salud cardiovascular y cerebral"
+    },
+    "omega 3,6,9": {
+        "uso": "Tomar con una comida",
+        "beneficios": "Salud cardiovascular y cerebral"
+    },
+    "gomas de colageno": {
+        "uso": "2 gomas al dia",
+        "beneficios": "Mejora piel, cabello y unas de forma deliciosa"
+    },
+    "gomas de vinagre": {
+        "uso": "2 gomas antes de comer",
+        "beneficios": "Apoya digestion y metabolismo"
+    },
+    "complejo b": {
+        "uso": "1 softgel al dia con desayuno",
+        "beneficios": "Energia, sistema nervioso y metabolismo"
+    },
 }
 
 
 def get_duracion(producto: str) -> int:
-    return DURACION_PRODUCTOS.get(producto.lower(), 30)
+    return DURACION_PRODUCTOS.get(producto.lower().strip(), 30)
 
 
 def get_info(producto: str):
-    return INFO_PRODUCTOS.get(producto.lower())
+    return INFO_PRODUCTOS.get(producto.lower().strip())

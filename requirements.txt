@@ -6,4 +6,3 @@ groq
 supabase
 python-dotenv
 httpx
-pandas

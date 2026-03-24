@@ -5,13 +5,9 @@ import json
 from datetime import datetime
 from products import get_duracion
 
-SHEET_ID = "1N3xGYFlSsKrUFV6JtrkeBQ_Acc-9ypXlNc9H74qT7N8"
-
-BASE_URL = f"https://docs.google.com/spreadsheets/d/{SHEET_ID}/gviz/tq?tqx=out:csv"
-
+SHEET_ID        = "1N3xGYFlSsKrUFV6JtrkeBQ_Acc-9ypXlNc9H74qT7N8"
+BASE_URL        = "https://docs.google.com/spreadsheets/d/" + SHEET_ID + "/gviz/tq?tqx=out:csv"
 APPS_SCRIPT_URL = "https://script.google.com/macros/s/AKfycbzGc7CTExPbsk5zNx-kZ_NqLLhVbPaH_eGDanl_JYaBANLXUwIbZAadlcgj5vVOZo2F/exec"
-
-_catalogo_cache = None
 
 
 # =============================
@@ -26,7 +22,6 @@ async def get_catalogo() -> str:
     rows = list(reader)
 
     productos = []
-
     for row in rows:
         if len(row) < 11:
             continue
@@ -35,72 +30,82 @@ async def get_catalogo() -> str:
         if row[10].strip().lower() != "activo":
             continue
 
-        precio = row[6].replace("$", "").replace(".", "").strip()
-        productos.append(
-            f"- {row[2]} | Pres: {row[3]} | Marca: {row[4]} | "
-            f"Sabor: {row[5]} | Precio: ${precio} | Ref: {row[8]}"
+        precio_raw = row[6].strip().replace("$", "").replace(".", "").replace(",", "")
+        try:
+            precio = int(precio_raw)
+            precio_fmt = "${:,}".format(precio).replace(",", ".")
+        except:
+            precio_fmt = row[6]
+
+        producto = (
+            "- " + row[2] +
+            " | Pres: "   + row[3] +
+            " | Marca: "  + row[4] +
+            " | Sabor: "  + row[5] +
+            " | Precio: " + precio_fmt +
+            " | Stock: "  + row[7] + " uds" +
+            " | Ref: "    + row[8]
         )
+        productos.append(producto)
 
     if not productos:
-        return "⚠️ No hay productos activos."
+        return "No hay productos disponibles en este momento."
 
-    print(f"[CATALOGO OK] {len(productos)} productos")
+    print("[CATALOGO OK] " + str(len(productos)) + " productos")
     return "\n".join(productos)
-
-
-async def get_catalogo_cached():
-    global _catalogo_cache
-    if _catalogo_cache:
-        return _catalogo_cache
-    _catalogo_cache = await get_catalogo()
-    return _catalogo_cache
 
 
 # =============================
 # 🧾 REGISTRAR PEDIDO
 # =============================
-async def registrar_pedido(
-    telefono,
-    nombre,
-    referencia,
-    producto,
-    presentacion,
-    marca,
-    sabor,
-    cantidad,
-    precio,
-    ubicacion,
-):
-    dias = get_duracion(producto)
-    now = datetime.now()
+async def registrar_pedido(telefono: str, nombre: str, referencia: str,
+                            producto: str, presentacion: str, marca: str,
+                            sabor: str, cantidad: int, precio: int,
+                            ubicacion: str) -> bool:
+    try:
+        dias = get_duracion(producto)
+        now  = datetime.now()
 
-    data = {
-        "telefono": telefono,
-        "nombre": nombre,
-        "referencia": referencia,
-        "producto": producto,
-        "presentacion": presentacion,
-        "marca": marca,
-        "sabor": sabor,
-        "cantidad": cantidad,
-        "precio": precio,
-        "ubicacion": ubicacion,
-        "fecha": now.strftime("%Y-%m-%d"),
-        "hora": now.strftime("%H:%M:%S"),
-        "dias_duracion": dias,
-    }
+        data = {
+            "telefono":    telefono,
+            "nombre":      nombre,
+            "referencia":  referencia,
+            "producto":    producto,
+            "presentacion": presentacion,
+            "marca":       marca,
+            "sabor":       sabor,
+            "cantidad":    cantidad,
+            "precio":      precio,
+            "ubicacion":   ubicacion,
+            "fecha":       now.strftime("%Y-%m-%d"),
+            "hora":        now.strftime("%H:%M:%S"),
+            "dias_duracion": dias,
+        }
 
-    async with httpx.AsyncClient() as client:
-        await client.post(APPS_SCRIPT_URL, json=data)
-
-    print("[PEDIDO OK]")
-    return True
+        async with httpx.AsyncClient() as client:
+            response = await client.post(
+                APPS_SCRIPT_URL,
+                content=json.dumps(data),
+                headers={"Content-Type": "application/json"},
+                follow_redirects=True,
+                timeout=15.0
+            )
+        result = response.json()
+        if result.get("status") == "ok":
+            print("[PEDIDO OK] " + result.get("pedido", ""))
+            return True
+        else:
+            print("[PEDIDO ERROR] " + str(result))
+            return False
+    except Exception as e:
+        print("[ERROR PEDIDO] " + str(e))
+        return False
 
 
 # =============================
 # 🔁 FOLLOW-UP
 # =============================
-async def get_pedidos():
+async def get_pedidos() -> list:
     url = BASE_URL + "&sheet=Pedidos"
     async with httpx.AsyncClient() as client:
         response = await client.get(url, timeout=10)
@@ -109,24 +114,21 @@ async def get_pedidos():
     rows = list(reader)
 
     pedidos = []
-
     for row in rows:
         if len(row) < 18 or row[0] == "# Pedido":
             continue
 
-        producto = row[7].strip()  # ✅ COLUMNA REAL
-        pedidos.append(
-            {
-                "telefono": row[3].strip(),
-                "nombre": row[4].strip(),
-                "producto": producto,
-                "fecha": f"{row[1]}T{row[2]}",
-                "dias_duracion": get_duracion(producto),
-                "f3": row[15],
-                "f_final": row[16],
-                "f_extra": row[17],
-            }
-        )
+        producto = row[7].strip()
+        pedidos.append({
+            "telefono":     row[3].strip(),
+            "nombre":       row[4].strip(),
+            "producto":     producto,
+            "fecha":        row[1] + "T" + row[2],
+            "dias_duracion": get_duracion(producto),
+            "f3":           row[15].strip(),
+            "f_final":      row[16].strip(),
+            "f_extra":      row[17].strip(),
+        })
 
-    print(f"[PEDIDOS OK] {len(pedidos)}")
+    print("[PEDIDOS OK] " + str(len(pedidos)) + " pedidos")
     return pedidos
