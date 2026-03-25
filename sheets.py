@@ -98,21 +98,47 @@ async def registrar_pedido(
             "dias_duracion": dias,
         }
 
-        async with httpx.AsyncClient() as client:
+        body = json.dumps(data)
+        headers = {"Content-Type": "application/json"}
+
+        # Primer intento sin seguir redirecciones automáticamente
+        async with httpx.AsyncClient(follow_redirects=False) as client:
             response = await client.post(
                 APPS_SCRIPT_URL,
-                content=json.dumps(data),
-                headers={"Content-Type": "application/json"},
-                follow_redirects=True,
+                content=body,
+                headers=headers,
                 timeout=15.0,
             )
+
+        # Google Apps Script devuelve 302 y httpx convierte el POST en GET
+        # lo que vacía el body. Lo seguimos manualmente para mantener POST + body.
+        if response.status_code in (301, 302, 303, 307, 308):
+            redirect_url = response.headers.get("location")
+            print("[REDIRECT] Siguiendo a: " + str(redirect_url))
+            async with httpx.AsyncClient() as client:
+                response = await client.post(
+                    redirect_url,
+                    content=body,
+                    headers=headers,
+                    timeout=15.0,
+                )
+
+        print(
+            "[PEDIDO RAW] status="
+            + str(response.status_code)
+            + " body="
+            + response.text[:200]
+        )
+
         result = response.json()
+
         if result.get("status") == "ok":
             print("[PEDIDO OK] " + result.get("pedido", ""))
             return True
         else:
             print("[PEDIDO ERROR] " + str(result))
             return False
+
     except Exception as e:
         print("[ERROR PEDIDO] " + str(e))
         return False
