@@ -5,6 +5,7 @@ from sheets import get_catalogo
 
 client = Groq(api_key=config.GROQ_KEY)
 
+
 async def get_ai_response(phone: str, user_message: str, history: list) -> str:
 
     # Obtener catalogo actualizado de Google Sheets
@@ -16,30 +17,23 @@ async def get_ai_response(phone: str, user_message: str, history: list) -> str:
         return "En este momento no puedo acceder al catalogo. Intenta en unos minutos o escribe 'asesor' para hablar con alguien."
 
     # System prompt con catalogo incluido
-    messages = [{
-        "role": "system",
-        "content": get_system_prompt(config.EMPRESA, catalogo)
-    }]
+    messages = [
+        {"role": "system", "content": get_system_prompt(config.EMPRESA, catalogo)}
+    ]
 
     # Historial previo
     for msg in history:
-        messages.append({
-            "role": msg["role"],
-            "content": msg["content"]
-        })
+        messages.append({"role": msg["role"], "content": msg["content"]})
 
     # Mensaje actual
-    messages.append({
-        "role": "user",
-        "content": user_message
-    })
+    messages.append({"role": "user", "content": user_message})
 
     # Llamar a Groq
     response = client.chat.completions.create(
         model="llama-3.3-70b-versatile",
         messages=messages,
         max_tokens=700,
-        temperature=0.7,
+        temperature=0.3,
     )
 
     return response.choices[0].message.content
