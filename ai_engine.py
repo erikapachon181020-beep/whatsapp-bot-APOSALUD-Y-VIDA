@@ -9,6 +9,11 @@ async def get_ai_response(phone: str, user_message: str, history: list) -> str:
 
     # Obtener catalogo actualizado de Google Sheets
     catalogo = await get_catalogo()
+    print("[CATALOGO] " + str(len(catalogo)) + " chars — preview: " + catalogo[:150])
+
+    # Bloquear si el catalogo no cargo
+    if not catalogo or "No hay productos" in catalogo:
+        return "En este momento no puedo acceder al catalogo. Intenta en unos minutos o escribe 'asesor' para hablar con alguien."
 
     # System prompt con catalogo incluido
     messages = [{
