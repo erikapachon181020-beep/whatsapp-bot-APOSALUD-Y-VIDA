@@ -12,18 +12,24 @@ async def get_ai_response(phone: str, user_message: str, history: list) -> str:
     catalogo = await get_catalogo()
     print("[CATALOGO] " + str(len(catalogo)) + " chars — preview: " + catalogo[:150])
 
-    # Bloquear si el catalogo no cargo
-    if not catalogo or "No hay productos" in catalogo:
-        return "En este momento no puedo acceder al catalogo. Intenta en unos minutos o escribe 'asesor' para hablar con alguien."
+    # Bloquear si el catalogo no cargo correctamente
+    if not catalogo or len(catalogo) < 50 or "No hay productos" in catalogo:
+        return (
+            "En este momento no puedo acceder al catálogo. "
+            "Intenta en unos minutos o escribe 'asesor' para hablar con alguien."
+        )
 
     # System prompt con catalogo incluido
     messages = [
         {"role": "system", "content": get_system_prompt(config.EMPRESA, catalogo)}
     ]
 
-    # Historial previo
+    # Historial previo — solo pasar role y content, sin created_at ni otros campos
     for msg in history:
-        messages.append({"role": msg["role"], "content": msg["content"]})
+        role = msg.get("role", "")
+        content = msg.get("content", "")
+        if role in ("user", "assistant") and content:
+            messages.append({"role": role, "content": content})
 
     # Mensaje actual
     messages.append({"role": "user", "content": user_message})

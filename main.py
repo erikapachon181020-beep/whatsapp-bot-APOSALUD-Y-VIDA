@@ -2,9 +2,10 @@ from fastapi import FastAPI, Form
 from fastapi.responses import PlainTextResponse
 from twilio.rest import Client
 import uvicorn
+import re
 
 from config import config
-from database import get_history, save_messages, is_human_mode, set_human_mode
+from database import get_history, save_messages, is_human_mode, set_human_mode, clear_history, is_new_session
 from ai_engine import get_ai_response
 from sheets import registrar_pedido
 from followup import router as followup_router
@@ -23,6 +24,48 @@ def send_whatsapp(to: str, body: str):
         from_="whatsapp:" + config.TWILIO_NUMBER,
         to=to
     )
+
+
+def parse_pedido(reply: str):
+    """
+    Busca y parsea la linea PEDIDO_CONFIRMAR en la respuesta del bot.
+    Retorna un dict con los campos o None si no se puede parsear.
+    """
+    for linea in reply.split("\n"):
+        linea = linea.strip()
+        if not linea.startswith("PEDIDO_CONFIRMAR"):
+            continue
+
+        print("[PEDIDO LINEA RAW] " + linea)
+
+        # Limpiar caracteres raros que el modelo pueda agregar
+        linea = re.sub(r"[*_`]", "", linea).strip()
+        partes = [p.strip() for p in linea.split("|")]
+
+        if len(partes) < 10:
+            print("[ERROR PARSE] Solo " + str(len(partes)) + " partes, se esperaban 10")
+            return None
+
+        try:
+            precio_raw = partes[9].replace("$", "").replace(".", "").replace(",", "").strip()
+            precio = int(precio_raw)
+        except ValueError:
+            print("[ERROR PARSE] Precio invalido: " + partes[9])
+            return None
+
+        return {
+            "nombre":       partes[1],
+            "referencia":   partes[2],
+            "producto":     partes[3],
+            "presentacion": partes[4],
+            "marca":        partes[5],
+            "sabor":        partes[6],
+            "cantidad":     partes[7],
+            "ubicacion":    partes[8],
+            "precio":       precio,
+        }
+
+    return None
 
 
 @app.get("/health")
@@ -57,10 +100,25 @@ async def webhook(From: str = Form(...), Body: str = Form(...)):
             send_whatsapp(phone, "Bot desactivado para " + numero)
             return PlainTextResponse("", status_code=200)
 
+    # Comando para limpiar historial manualmente (util para debug)
+    if text.startswith("/reset"):
+        partes = text.split(" ")
+        numero = partes[1].strip() if len(partes) == 2 else phone
+        if not numero.startswith("whatsapp:"):
+            numero = "whatsapp:" + numero
+        clear_history(numero)
+        send_whatsapp(phone, "Historial borrado para " + numero)
+        return PlainTextResponse("", status_code=200)
+
     # ── Modo humano activo ─────────────────────────────────────────
     if is_human_mode(phone):
         print("[HUMANO] " + phone + " bot desactivado")
         return PlainTextResponse("", status_code=200)
+
+    # ── Nueva sesion: limpiar historial del dia anterior ──────────
+    if is_new_session(phone):
+        print("[NUEVA SESION] Limpiando historial de " + phone)
+        clear_history(phone)
 
     # ── Palabras clave para transferir a asesor ────────────────────
     triggers = ["humano", "asesor", "persona", "agente"]
@@ -94,50 +152,52 @@ async def webhook(From: str = Form(...), Body: str = Form(...)):
 
         # Pedido detectado
         elif "PEDIDO_CONFIRMAR" in reply:
-            linea = ""
-            for l in reply.split("\n"):
-                if "PEDIDO_CONFIRMAR" in l:
-                    linea = l.strip()
-                    break
+            pedido = parse_pedido(reply)
 
-            print("[PEDIDO LINEA] " + linea)
-            partes = linea.split("|")
-            exito  = False
+            if pedido is None:
+                print("[ERROR PEDIDO] No se pudo parsear la linea tecnica")
+                reply = "Hubo un problema procesando tu pedido. Un asesor te ayudara pronto."
+                alerta = ("PEDIDO FALLIDO — REQUIERE ATENCION MANUAL\n"
+                          "Numero: " + phone.replace("whatsapp:", "") + "\n"
+                          "El bot no pudo parsear el pedido correctamente.")
+                send_whatsapp(VENDEDOR, alerta)
+            else:
+                try:
+                    cantidad = int(pedido["cantidad"])
+                except ValueError:
+                    cantidad = 1
 
-            try:
-                nombre       = partes[1].strip()
-                referencia   = partes[2].strip()
-                producto     = partes[3].strip()
-                presentacion = partes[4].strip()
-                marca        = partes[5].strip()
-                sabor        = partes[6].strip()
-                cantidad     = int(partes[7].strip())
-                ubicacion    = partes[8].strip()
-                precio_raw   = partes[9].strip().replace("$", "").replace(".", "").replace(",", "")
-                precio       = int(precio_raw)
-                total        = cantidad * precio
+                total = cantidad * pedido["precio"]
 
                 ok = await registrar_pedido(
-                    phone, nombre, referencia, producto,
-                    presentacion, marca, sabor, cantidad, precio, ubicacion
+                    phone,
+                    pedido["nombre"],
+                    pedido["referencia"],
+                    pedido["producto"],
+                    pedido["presentacion"],
+                    pedido["marca"],
+                    pedido["sabor"],
+                    cantidad,
+                    pedido["precio"],
+                    pedido["ubicacion"],
                 )
 
                 if ok:
-                    reply = ("Pedido registrado exitosamente.\n"
-                             "Producto: "     + producto     + "\n"
-                             "Presentacion: " + presentacion + "\n"
-                             "Marca: "        + marca        + " | Sabor: " + sabor + "\n"
-                             "Cantidad: "     + str(cantidad) + "\n"
-                             "Ubicacion: "    + ubicacion    + "\n"
+                    reply = ("Pedido registrado exitosamente. ✅\n"
+                             "Producto: "     + pedido["producto"]     + "\n"
+                             "Presentacion: " + pedido["presentacion"] + "\n"
+                             "Marca: "        + pedido["marca"]        + " | Sabor: " + pedido["sabor"] + "\n"
+                             "Cantidad: "     + str(cantidad)          + "\n"
+                             "Ubicacion: "    + pedido["ubicacion"]    + "\n"
                              "Total: $"       + "{:,}".format(total).replace(",", ".") + "\n\n"
                              "Un asesor te confirmara el pedido pronto.")
-                    exito = True
-
-            except Exception as ep:
-                print("[ERROR PARSE] " + str(ep))
-
-            if not exito:
-                reply = "Hubo un problema procesando tu pedido. Un asesor te ayudara."
+                else:
+                    reply = "Hubo un problema registrando tu pedido. Un asesor te ayudara pronto."
+                    alerta = ("PEDIDO FALLIDO — ERROR EN SHEETS\n"
+                              "Numero: " + phone.replace("whatsapp:", "") + "\n"
+                              "Cliente: " + pedido["nombre"] + "\n"
+                              "Producto: " + pedido["producto"])
+                    send_whatsapp(VENDEDOR, alerta)
 
         save_messages(phone, text, reply)
         send_whatsapp(phone, reply)
