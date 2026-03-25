@@ -5,9 +5,9 @@ import json
 from datetime import datetime
 from products import get_duracion
 
-SHEET_ID        = "1N3xGYFlSsKrUFV6JtrkeBQ_Acc-9ypXlNc9H74qT7N8"
-BASE_URL        = "https://docs.google.com/spreadsheets/d/" + SHEET_ID + "/gviz/tq?tqx=out:csv"
-APPS_SCRIPT_URL = "https://script.google.com/macros/s/AKfycbzGc7CTExPbsk5zNx-kZ_NqLLhVbPaH_eGDanl_JYaBANLXUwIbZAadlcgj5vVOZo2F/exec"
+SHEET_ID = "1N3xGYFlSsKrUFV6JtrkeBQ_Acc-9ypXlNc9H74qT7N8"
+BASE_URL = "https://docs.google.com/spreadsheets/d/" + SHEET_ID + "/gviz/tq?tqx=out:csv"
+APPS_SCRIPT_URL = "https://script.google.com/macros/s/AKfycbxQwuyPUIcy7cUu9pFmjbvlQLBYdt6s7NHbGHNeBFmikPdZRSw53rRtzESNVNWO9kDb/exec"
 
 
 # =============================
@@ -38,13 +38,21 @@ async def get_catalogo() -> str:
             precio_fmt = row[6]
 
         producto = (
-            "- " + row[2] +
-            " | Pres: "   + row[3] +
-            " | Marca: "  + row[4] +
-            " | Sabor: "  + row[5] +
-            " | Precio: " + precio_fmt +
-            " | Stock: "  + row[7] + " uds" +
-            " | Ref: "    + row[8]
+            "- "
+            + row[2]
+            + " | Pres: "
+            + row[3]
+            + " | Marca: "
+            + row[4]
+            + " | Sabor: "
+            + row[5]
+            + " | Precio: "
+            + precio_fmt
+            + " | Stock: "
+            + row[7]
+            + " uds"
+            + " | Ref: "
+            + row[8]
         )
         productos.append(producto)
 
@@ -58,27 +66,35 @@ async def get_catalogo() -> str:
 # =============================
 # 🧾 REGISTRAR PEDIDO
 # =============================
-async def registrar_pedido(telefono: str, nombre: str, referencia: str,
-                            producto: str, presentacion: str, marca: str,
-                            sabor: str, cantidad: int, precio: int,
-                            ubicacion: str) -> bool:
+async def registrar_pedido(
+    telefono: str,
+    nombre: str,
+    referencia: str,
+    producto: str,
+    presentacion: str,
+    marca: str,
+    sabor: str,
+    cantidad: int,
+    precio: int,
+    ubicacion: str,
+) -> bool:
     try:
         dias = get_duracion(producto)
-        now  = datetime.now()
+        now = datetime.now()
 
         data = {
-            "telefono":    telefono,
-            "nombre":      nombre,
-            "referencia":  referencia,
-            "producto":    producto,
+            "telefono": telefono,
+            "nombre": nombre,
+            "referencia": referencia,
+            "producto": producto,
             "presentacion": presentacion,
-            "marca":       marca,
-            "sabor":       sabor,
-            "cantidad":    cantidad,
-            "precio":      precio,
-            "ubicacion":   ubicacion,
-            "fecha":       now.strftime("%Y-%m-%d"),
-            "hora":        now.strftime("%H:%M:%S"),
+            "marca": marca,
+            "sabor": sabor,
+            "cantidad": cantidad,
+            "precio": precio,
+            "ubicacion": ubicacion,
+            "fecha": now.strftime("%Y-%m-%d"),
+            "hora": now.strftime("%H:%M:%S"),
             "dias_duracion": dias,
         }
 
@@ -88,7 +104,7 @@ async def registrar_pedido(telefono: str, nombre: str, referencia: str,
                 content=json.dumps(data),
                 headers={"Content-Type": "application/json"},
                 follow_redirects=True,
-                timeout=15.0
+                timeout=15.0,
             )
         result = response.json()
         if result.get("status") == "ok":
@@ -119,16 +135,18 @@ async def get_pedidos() -> list:
             continue
 
         producto = row[7].strip()
-        pedidos.append({
-            "telefono":     row[3].strip(),
-            "nombre":       row[4].strip(),
-            "producto":     producto,
-            "fecha":        row[1] + "T" + row[2],
-            "dias_duracion": get_duracion(producto),
-            "f3":           row[15].strip(),
-            "f_final":      row[16].strip(),
-            "f_extra":      row[17].strip(),
-        })
+        pedidos.append(
+            {
+                "telefono": row[3].strip(),
+                "nombre": row[4].strip(),
+                "producto": producto,
+                "fecha": row[1] + "T" + row[2],
+                "dias_duracion": get_duracion(producto),
+                "f3": row[15].strip(),
+                "f_final": row[16].strip(),
+                "f_extra": row[17].strip(),
+            }
+        )
 
     print("[PEDIDOS OK] " + str(len(pedidos)) + " pedidos")
     return pedidos
