@@ -6,7 +6,7 @@ from datetime import datetime
 from products import get_duracion
 
 SHEET_ID = "1N3xGYFlSsKrUFV6JtrkeBQ_Acc-9ypXlNc9H74qT7N8"
-BASE_URL = "https://docs.google.com/spreadsheets/d/" + SHEET_ID + "/gviz/tq?tqx=out:csv"
+BASE_URL = f"https://docs.google.com/spreadsheets/d/{SHEET_ID}/gviz/tq?tqx=out:csv"
 APPS_SCRIPT_URL = "https://script.google.com/macros/s/AKfycbxQwuyPUIcy7cUu9pFmjbvlQLBYdt6s7NHbGHNeBFmikPdZRSw53rRtzESNVNWO9kDb/exec"
 
 
@@ -15,6 +15,7 @@ APPS_SCRIPT_URL = "https://script.google.com/macros/s/AKfycbxQwuyPUIcy7cUu9pFmjb
 # =============================
 async def get_catalogo() -> str:
     url = BASE_URL + "&sheet=Catalogo"
+
     async with httpx.AsyncClient() as client:
         response = await client.get(url, timeout=10)
 
@@ -22,6 +23,7 @@ async def get_catalogo() -> str:
     rows = list(reader)
 
     productos = []
+
     for row in rows:
         if len(row) < 11:
             continue
@@ -30,36 +32,23 @@ async def get_catalogo() -> str:
         if row[10].strip().lower() != "activo":
             continue
 
-        precio_raw = row[6].strip().replace("$", "").replace(".", "").replace(",", "")
+        precio_raw = row[6].replace("$", "").replace(".", "").replace(",", "").strip()
+
         try:
-            precio = int(precio_raw)
-            precio_fmt = "${:,}".format(precio).replace(",", ".")
+            precio_fmt = "${:,}".format(int(precio_raw)).replace(",", ".")
         except:
             precio_fmt = row[6]
 
-        producto = (
-            "- "
-            + row[2]
-            + " | Pres: "
-            + row[3]
-            + " | Marca: "
-            + row[4]
-            + " | Sabor: "
-            + row[5]
-            + " | Precio: "
-            + precio_fmt
-            + " | Stock: "
-            + row[7]
-            + " uds"
-            + " | Ref: "
-            + row[8]
+        productos.append(
+            f"- {row[2]} | Pres: {row[3]} | Marca: {row[4]} | "
+            f"Sabor: {row[5]} | Precio: {precio_fmt} | "
+            f"Stock: {row[7]} uds | Ref: {row[8]}"
         )
-        productos.append(producto)
 
     if not productos:
         return "No hay productos disponibles en este momento."
 
-    print("[CATALOGO OK] " + str(len(productos)) + " productos")
+    print(f"[CATALOGO OK] {len(productos)} productos")
     return "\n".join(productos)
 
 
@@ -78,8 +67,8 @@ async def registrar_pedido(
     precio: int,
     ubicacion: str,
 ) -> bool:
+
     try:
-        dias = get_duracion(producto)
         now = datetime.now()
 
         data = {
@@ -95,52 +84,31 @@ async def registrar_pedido(
             "ubicacion": ubicacion,
             "fecha": now.strftime("%Y-%m-%d"),
             "hora": now.strftime("%H:%M:%S"),
-            "dias_duracion": dias,
+            "dias_duracion": get_duracion(producto),
         }
 
-        body = json.dumps(data)
-        headers = {"Content-Type": "application/json"}
-
-        # Primer intento sin seguir redirecciones automáticamente
-        async with httpx.AsyncClient(follow_redirects=False) as client:
+        async with httpx.AsyncClient() as client:
             response = await client.post(
                 APPS_SCRIPT_URL,
-                content=body,
-                headers=headers,
+                content=json.dumps(data),
+                headers={"Content-Type": "application/json"},
+                follow_redirects=True,  # 🔥 FIX CLAVE
                 timeout=15.0,
             )
 
-        # Google Apps Script devuelve 302 y httpx convierte el POST en GET
-        # lo que vacía el body. Lo seguimos manualmente para mantener POST + body.
-        if response.status_code in (301, 302, 303, 307, 308):
-            redirect_url = response.headers.get("location")
-            print("[REDIRECT] Siguiendo a: " + str(redirect_url))
-            async with httpx.AsyncClient() as client:
-                response = await client.post(
-                    redirect_url,
-                    content=body,
-                    headers=headers,
-                    timeout=15.0,
-                )
-
-        print(
-            "[PEDIDO RAW] status="
-            + str(response.status_code)
-            + " body="
-            + response.text[:200]
-        )
+        print(f"[PEDIDO RAW] {response.status_code} - {response.text[:100]}")
 
         result = response.json()
 
         if result.get("status") == "ok":
-            print("[PEDIDO OK] " + result.get("pedido", ""))
+            print(f"[PEDIDO OK] {result.get('pedido', '')}")
             return True
-        else:
-            print("[PEDIDO ERROR] " + str(result))
-            return False
+
+        print(f"[PEDIDO ERROR] {result}")
+        return False
 
     except Exception as e:
-        print("[ERROR PEDIDO] " + str(e))
+        print(f"[ERROR PEDIDO] {e}")
         return False
 
 
@@ -149,6 +117,7 @@ async def registrar_pedido(
 # =============================
 async def get_pedidos() -> list:
     url = BASE_URL + "&sheet=Pedidos"
+
     async with httpx.AsyncClient() as client:
         response = await client.get(url, timeout=10)
 
@@ -156,17 +125,19 @@ async def get_pedidos() -> list:
     rows = list(reader)
 
     pedidos = []
+
     for row in rows:
         if len(row) < 18 or row[0] == "# Pedido":
             continue
 
         producto = row[7].strip()
+
         pedidos.append(
             {
                 "telefono": row[3].strip(),
                 "nombre": row[4].strip(),
                 "producto": producto,
-                "fecha": row[1] + "T" + row[2],
+                "fecha": f"{row[1]}T{row[2]}",
                 "dias_duracion": get_duracion(producto),
                 "f3": row[15].strip(),
                 "f_final": row[16].strip(),
@@ -174,5 +145,5 @@ async def get_pedidos() -> list:
             }
         )
 
-    print("[PEDIDOS OK] " + str(len(pedidos)) + " pedidos")
+    print(f"[PEDIDOS OK] {len(pedidos)} pedidos")
     return pedidos
